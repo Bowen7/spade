@@ -418,11 +418,7 @@ where
 
     /// # Handle invalidation
     /// See [Triangulation::remove]. This function was accidentally implemented separately for CDTs and will be removed in future releases.
-    /// Use the method from the trait instead.
-    #[deprecated(
-        since = "2.14.0",
-        note = "Please use `remove` from trait `Triangulation` instead."
-    )]
+    /// Use the method from the trait to avoid breakage.
     pub fn remove(&mut self, vertex: FixedVertexHandle) -> V {
         <Self as Triangulation>::remove(self, vertex)
     }
