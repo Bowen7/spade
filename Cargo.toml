@@ -48,7 +48,7 @@ members = ["delaunay_compare"]
 
 [dev-dependencies]
 approx = "0.5"
-rand = "0.9.0"
+rand = "0.9.1"
 cgmath = "0.18.0"
 svg = "0.18.0"
 float_next_after = "1"
