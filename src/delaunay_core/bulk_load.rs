@@ -150,9 +150,38 @@ where
     Ok(result)
 }
 
+/// Returns the [`ConstrainedDelaunayTriangulation`].
+///
+/// Panics if it encounters any conflicting edges. See [try_bulk_load_cdt] for a non-panicking version.
+///
+/// # See also
+///
+/// See also [ConstrainedDelaunayTriangulation::bulk_load_cdt]
 pub fn bulk_load_cdt<V, DE, UE, F, L>(
     elements: Vec<V>,
+    edges: Vec<[usize; 2]>,
+) -> Result<ConstrainedDelaunayTriangulation<V, DE, UE, F, L>, InsertionError>
+where
+    V: HasPosition,
+    DE: Default,
+    UE: Default,
+    F: Default,
+    L: HintGenerator<<V as HasPosition>::Scalar>,
+{
+    try_bulk_load_cdt(elements, edges, |e| {
+        panic!("Conflicting edge encountered: {};{}", e[0], e[1])
+    })
+}
+
+/// Efficient bulk loading of a constraint delaunay triangulation, including both vertices and constraint edges.
+/// See [ConstrainedDelaunayTriangulation::bulk_load_cdt] for a related example and documentation.
+///
+/// This function does not panic if any two constraints intersect.
+/// It will instead call `on_conflict_found` on all edges that could not be added as they intersect a previously added constraint.
+pub fn try_bulk_load_cdt<V, DE, UE, F, L>(
+    elements: Vec<V>,
     mut edges: Vec<[usize; 2]>,
+    mut on_conflict_found: impl FnMut([usize; 2]),
 ) -> Result<ConstrainedDelaunayTriangulation<V, DE, UE, F, L>, InsertionError>
 where
     V: HasPosition,
@@ -232,7 +261,6 @@ where
     let mut next_constraint = edges.pop();
 
     let mut buffer = Vec::new();
-
     let mut add_constraints_for_new_vertex =
         |result: &mut ConstrainedDelaunayTriangulation<V, DE, UE, F, L>, index| {
             while let Some([from, to]) = next_constraint {
@@ -241,7 +269,9 @@ where
                     let [new_from, new_to] =
                         [from, to].map(|v| FixedVertexHandle::new(old_to_new[v]));
                     // Insert constraint edge
-                    result.add_constraint(new_from, new_to);
+                    if result.try_add_constraint(new_from, new_to).is_empty() {
+                        on_conflict_found([from, to]);
+                    }
                     next_constraint = edges.pop();
                 } else {
                     break;
