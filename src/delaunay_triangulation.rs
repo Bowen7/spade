@@ -1,10 +1,12 @@
 use super::delaunay_core::Dcel;
 use crate::{
-    delaunay_core::bulk_load, handles::VertexHandle, HasPosition, HintGenerator, InsertionError,
-    LastUsedVertexHintGenerator, NaturalNeighbor, Point2, Triangulation, TriangulationExt,
+    handles::VertexHandle, ConstrainedDelaunayTriangulation, HasPosition, HintGenerator,
+    InsertionError, LastUsedVertexHintGenerator, NaturalNeighbor, Point2, Triangulation,
+    TriangulationExt,
 };
-
+use alloc::vec;
 use alloc::vec::Vec;
+
 use num_traits::Float;
 
 #[cfg(feature = "serde")]
@@ -292,7 +294,7 @@ where
     pub fn nearest_neighbor(
         &self,
         position: Point2<<V as HasPosition>::Scalar>,
-    ) -> Option<VertexHandle<V, DE, UE, F>> {
+    ) -> Option<VertexHandle<'_, V, DE, UE, F>> {
         if self.num_vertices() == 0 {
             return None;
         }
@@ -312,15 +314,19 @@ where
     ///
     /// # Duplicate handling
     ///
-    /// If two vertices have the same position, only one of them will be included in the final
-    /// triangulation. It is undefined which of them is discarded.
+    /// For every set of vertices with identical positions, only the vertex with the lowest index
+    /// is kept.
     ///
-    /// For example, if the input vertices are [v0, v1, v2, v1] (where v1 is duplicated), the
-    /// resulting triangulation will be either
-    /// [v0, v1, v2] or [v0, v2, v1]
+    /// For example, if the input vertices are `[v0, v1, v2, v1]` (where v1 is duplicated), the
+    /// resulting triangulation will be `[v0, v1, v2]`.
     ///
     /// Consider checking the triangulation's size after calling this method to ensure that no
-    /// duplicates were present.
+    /// duplicates were present. Removing duplicates requires additional work and slightly
+    /// increases the run time.
+    ///
+    /// # Run Time
+    ///
+    /// `O(n*log(n))` for `n` input vertices. Slightly (5% - 10%) slower than [Triangulation::bulk_load].
     ///
     /// # Example
     /// ```
@@ -345,14 +351,22 @@ where
     /// # Ok(()) }
     /// ```
     pub fn bulk_load_stable(elements: Vec<V>) -> Result<Self, InsertionError> {
-        let mut result: Self = crate::delaunay_core::bulk_load_stable::<
-            _,
-            _,
-            DelaunayTriangulation<_, _, _, _, _>,
-            _,
-        >(bulk_load, elements)?;
-        *result.hint_generator_mut() = L::initialize_from_triangulation(&result);
+        let cdt = ConstrainedDelaunayTriangulation::bulk_load_cdt(elements, vec![])?;
+        let result = Self::from_cdt(cdt);
+
         Ok(result)
+    }
+
+    fn from_cdt(
+        cdt: ConstrainedDelaunayTriangulation<V, DE, UE, F, L>,
+    ) -> DelaunayTriangulation<V, DE, UE, F, L> {
+        let (dcel, hint_generator, num_constraints) = cdt.into_parts();
+        let dcel = dcel.map_undirected_edges(|cdt_edge| cdt_edge.deconstruct().1);
+        assert_eq!(num_constraints, 0);
+        DelaunayTriangulation {
+            dcel,
+            hint_generator,
+        }
     }
 }
 
@@ -383,7 +397,7 @@ where
 {
     /// Allows using natural neighbor interpolation on this triangulation. Refer to the documentation
     /// of [NaturalNeighbor] for more information.
-    pub fn natural_neighbor(&self) -> NaturalNeighbor<Self> {
+    pub fn natural_neighbor(&self) -> NaturalNeighbor<'_, Self> {
         NaturalNeighbor::new(self)
     }
 }
