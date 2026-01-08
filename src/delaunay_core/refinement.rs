@@ -176,6 +176,7 @@ pub struct RefinementParameters<S: SpadeNum + Float> {
     max_area: Option<S>,
     keep_constraint_edges: bool,
     exclude_outer_faces: bool,
+    exclude_boundary_faces: bool,
 }
 
 impl<S: SpadeNum + Float> Default for RefinementParameters<S> {
@@ -186,6 +187,7 @@ impl<S: SpadeNum + Float> Default for RefinementParameters<S> {
             min_area: None,
             max_area: None,
             exclude_outer_faces: false,
+            exclude_boundary_faces: false,
             keep_constraint_edges: false,
         }
     }
@@ -323,13 +325,25 @@ impl<S: SpadeNum + Float> RefinementParameters<S> {
 
     fn get_refinement_hint<V, DE, UE, F>(
         &self,
-        face: FaceHandle<InnerTag, V, DE, UE, F>,
+        face: FaceHandle<InnerTag, V, DE, CdtEdge<UE>, F>,
+        constraint_vertices: &HashSet<FixedVertexHandle>,
     ) -> RefinementHint
     where
         V: HasPosition<Scalar = S>,
     {
         if let Some(max_area) = self.max_area {
             if face.area() > max_area {
+                return RefinementHint::MustRefine;
+            }
+        }
+
+        if self.exclude_boundary_faces {
+            // Check if all three vertices are constraint vertices (O(1) lookup each)
+            let is_boundary = face
+                .vertices()
+                .iter()
+                .all(|v| constraint_vertices.contains(&v.fix()));
+            if is_boundary {
                 return RefinementHint::MustRefine;
             }
         }
@@ -505,6 +519,11 @@ where
 
         let mut refinement_complete = true;
 
+        let mut constraint_vertices: HashSet<FixedVertexHandle> = self
+            .undirected_edges()
+            .filter(|e| e.is_constraint_edge())
+            .flat_map(|e| e.vertices().map(|v| v.fix()))
+            .collect();
         // Main loop of the algorithm
         //
         // Some terminology:
@@ -546,6 +565,7 @@ where
                     &mut constraint_edge_map,
                     forcibly_split_segment,
                     &mut excluded_faces,
+                    &mut constraint_vertices,
                 );
                 continue;
             }
@@ -579,6 +599,7 @@ where
                                 &mut constraint_edge_map,
                                 segment_candidate,
                                 &mut excluded_faces,
+                                &mut constraint_vertices,
                             );
                         }
                     }
@@ -597,7 +618,7 @@ where
 
                 let (shortest_edge, _) = face.shortest_edge();
 
-                let refinement_hint = parameters.get_refinement_hint(face);
+                let refinement_hint = parameters.get_refinement_hint(face, &constraint_vertices);
 
                 if refinement_hint == RefinementHint::Ignore {
                     // Triangle is fine as is and can be skipped
@@ -758,6 +779,7 @@ where
         constraint_edge_map: &mut HashMap<FixedVertexHandle, [FixedVertexHandle; 2]>,
         encroached_edge: FixedUndirectedEdgeHandle,
         excluded_faces: &mut HashSet<FixedFaceHandle<InnerTag>>,
+        constraint_vertices: &mut HashSet<FixedVertexHandle>,
     ) {
         // Resolves an encroachment by splitting the encroached edge. Since this reduces the diametral circle, this will
         // eventually get rid of the encroachment completely.
@@ -843,6 +865,7 @@ where
         if is_constraint_edge {
             // Make sure to update the constraint edges count as required.
             self.handle_legal_edge_split([e1, e2]);
+            constraint_vertices.insert(new_vertex);
         }
 
         let (h1, h2) = (self.directed_edge(e1), self.directed_edge(e2));
