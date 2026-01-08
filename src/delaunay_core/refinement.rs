@@ -323,6 +323,12 @@ impl<S: SpadeNum + Float> RefinementParameters<S> {
         self
     }
 
+    /// Exclude boundary faces
+    pub fn exclude_boundary_faces(mut self) -> Self {
+        self.exclude_boundary_faces = true;
+        self
+    }
+
     fn get_refinement_hint<V, DE, UE, F>(
         &self,
         face: FaceHandle<InnerTag, V, DE, CdtEdge<UE>, F>,
