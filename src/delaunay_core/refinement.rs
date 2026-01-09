@@ -171,7 +171,7 @@ enum RefinementHint {
 pub struct RefinementParameters<S: SpadeNum + Float> {
     max_additional_vertices: Option<usize>,
 
-    angle_limit: AngleLimit,
+    angle_limit: Option<AngleLimit>,
     min_area: Option<S>,
     max_area: Option<S>,
     keep_constraint_edges: bool,
@@ -183,7 +183,7 @@ impl<S: SpadeNum + Float> Default for RefinementParameters<S> {
     fn default() -> Self {
         Self {
             max_additional_vertices: None,
-            angle_limit: AngleLimit::from_radius_to_shortest_edge_ratio(1.0),
+            angle_limit: None,
             min_area: None,
             max_area: None,
             exclude_outer_faces: false,
@@ -228,7 +228,7 @@ impl<S: SpadeNum + Float> RefinementParameters<S> {
     ///
     /// *See also [ConstrainedDelaunayTriangulation::refine]*
     pub fn with_angle_limit(mut self, angle_limit: AngleLimit) -> Self {
-        self.angle_limit = angle_limit;
+        self.angle_limit = Some(angle_limit);
         self
     }
 
@@ -360,16 +360,17 @@ impl<S: SpadeNum + Float> RefinementParameters<S> {
             }
         }
 
-        let (_, length2) = face.shortest_edge();
-        let (_, radius2) = face.circumcircle();
+        if let Some(angle_limit) = self.angle_limit {
+            let (_, length2) = face.shortest_edge();
+            let (_, radius2) = face.circumcircle();
 
-        let ratio2 = radius2 / length2;
-        let angle_limit = self.angle_limit.radius_to_shortest_edge_limit;
-        if ratio2.into() > angle_limit * angle_limit {
-            RefinementHint::ShouldRefine
-        } else {
-            RefinementHint::Ignore
+            let ratio2 = radius2 / length2;
+            let angle_limit = angle_limit.radius_to_shortest_edge_limit;
+            if ratio2.into() > angle_limit * angle_limit {
+                return RefinementHint::ShouldRefine;
+            }
         }
+        RefinementHint::Ignore
     }
 }
 
